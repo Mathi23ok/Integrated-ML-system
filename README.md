@@ -138,29 +138,7 @@ system/
 ├── app.py
 ```
 
----
 
-## How to Run
-
-### Train
-
-```bash
-python train.py
-```
-
-### API
-
-```bash
-uvicorn api:app --reload
-```
-
-### UI
-
-```bash
-streamlit run app.py
-```
-
----
 
 ## Limitations
 
