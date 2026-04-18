@@ -286,7 +286,19 @@ def check_consistency(prob, rf_pred):
         return "Conflict"
     if prob < 0.3 and rf_pred == 1:
         return "Conflict"
-    return "Consistent"    
+    return "Consistent"
+
+
+def get_top_features(processed_input, system, top_n=2):
+    importance = system["feature_importance"]
+    feature_names = system["feature_columns"]
+
+    # Get indices of top features
+    top_indices = np.argsort(importance)[-top_n:][::-1]
+
+    return [feature_names[i] for i in top_indices]
+
+
 def validate_inputs(user_input):
     if user_input["capital_gain"] < 0 or user_input["capital_loss"] < 0:
         return "Capital gain and capital loss must be zero or greater."
@@ -438,6 +450,11 @@ def render_results(result):
             result["consistency"],
             "Whether ensemble models agree on the prediction.",
         )
+        render_result_card(
+            "Top Influencing Factors",
+            ", ".join(result["top_factors"]),
+            "Most impactful features driving this prediction",
+        )
 
         st.markdown("#### Probability Gauge")
         st.progress(prob, text=f"Income above 50K: {prob:.1%}")
@@ -479,12 +496,14 @@ def main():
                 
                 decision, confidence = make_decision(prob, tree_class)
                 consistency = check_consistency(prob, rf_pred)
+                top_features = get_top_features(processed_input, system)
                 
                 result = {
                     "decision": decision,
                     "confidence": confidence,
                     "probability": prob,
-                    "consistency": consistency
+                    "consistency": consistency,
+                    "top_factors": top_features
                 }
                 
                 st.success("Prediction ready.")
