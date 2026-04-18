@@ -25,7 +25,7 @@ MODEL_PATH = "system.pkl"
 
 
 def main():
- 
+   
     raw_df = prepare_dataframe(DATASET_PATH)
 
     input_schema = get_input_schema(raw_df)
@@ -37,14 +37,13 @@ def main():
 
     X, y_log, y_cls = split_data(model_df)
 
-
+  
     X_train, X_test, y_log_train, y_log_test, y_cls_train, y_cls_test = train_test_split(
         X, y_log, y_cls, test_size=0.2, random_state=42
     )
 
     X_train, mean, std = scale_features(X_train)
     X_test = (X_test - mean) / std
-
 
 
     # Baseline
@@ -67,13 +66,17 @@ def main():
     rf_model.fit(X_train, y_log_train)
     rf_acc = accuracy_score(y_log_test, rf_model.predict(X_test))
 
+    # Extract feature importance
+    feature_importance = rf_model.feature_importances_
+
+  
     print("----- MODEL PERFORMANCE -----")
     print(f"Dummy Baseline Accuracy: {dummy_acc:.4f}")
     print(f"Logistic Regression Accuracy: {log_acc:.4f}")
     print(f"Random Forest Accuracy: {rf_acc:.4f}")
     print(f"Decision Tree Accuracy (class): {tree_acc:.4f}")
 
-   
+    
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(
             {
@@ -86,6 +89,7 @@ def main():
                 "input_schema": input_schema,
                 "default_raw_input": default_raw_input,
                 "education_num_map": education_num_map,
+                "feature_importance": feature_importance,
                 "metrics": {
                     "dummy_accuracy": float(dummy_acc),
                     "logistic_accuracy": float(log_acc),
