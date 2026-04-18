@@ -1,11 +1,10 @@
 import numpy as np
 import pandas as pd
 
-
 INCOME_TARGET = "income"
-ESTIMATED_INCOME = "Estimated_Income"
 INCOME_CLASS = "Income_Class"
-MODEL_EXCLUDED_COLUMNS = {INCOME_TARGET, ESTIMATED_INCOME, INCOME_CLASS}
+
+MODEL_EXCLUDED_COLUMNS = {INCOME_TARGET, INCOME_CLASS}
 
 
 def load_data(path):
@@ -40,35 +39,28 @@ def encode_target(df):
     return df
 
 
-def create_regression_target(df):
-    df = df.copy()
-    hours = df["hours-per-week"].clip(lower=1)
-    capital_gain = df["capital-gain"].clip(lower=0)
-    capital_loss = df["capital-loss"].clip(lower=0)
-
-    df[ESTIMATED_INCOME] = (
-        np.power(hours, 1.25) * 920
-        + df["education-num"] * 2600
-        + np.sqrt(capital_gain) * 115
-        - np.log1p(capital_loss) * 850
-        + df["age"] * 145
-    )
-    return df
-
-
 def create_classification_target(df):
     df = df.copy()
-    low_cutoff = df[ESTIMATED_INCOME].quantile(0.33)
-    high_cutoff = df[ESTIMATED_INCOME].quantile(0.66)
 
-    def classify(value):
-        if value <= low_cutoff:
+    score = (
+        df["education-num"] * 2
+        + df["hours-per-week"] * 0.5
+        + df["age"] * 0.3
+    )
+
+    low_cutoff = np.quantile(score, 0.33)
+    high_cutoff = np.quantile(score, 0.66)
+
+    def classify(val):
+        if val <= low_cutoff:
             return 0
-        if value <= high_cutoff:
+        elif val <= high_cutoff:
             return 1
-        return 2
+        else:
+            return 2
 
-    df[INCOME_CLASS] = df[ESTIMATED_INCOME].apply(classify)
+    df[INCOME_CLASS] = score.apply(classify)
+
     return df
 
 
@@ -76,35 +68,37 @@ def prepare_dataframe(path):
     df = load_data(path)
     df = clean_data(df)
     df = encode_target(df)
-    df = create_regression_target(df)
-    df = create_classification_target(df)
+    df = create_classification_target(df) 
     return df
 
 
+
 def get_input_schema(df):
-    feature_df = df.drop(columns=[INCOME_TARGET, ESTIMATED_INCOME, INCOME_CLASS])
+    feature_df = df.drop(columns=list(MODEL_EXCLUDED_COLUMNS))
     schema = []
 
     for col in feature_df.columns:
         if feature_df[col].dtype == "object":
             options = sorted(feature_df[col].astype(str).unique().tolist())
-            schema.append({"name": col, "type": "categorical", "options": options})
+            schema.append({
+                "name": col,
+                "type": "categorical",
+                "options": options
+            })
         else:
-            schema.append(
-                {
-                    "name": col,
-                    "type": "numeric",
-                    "min": float(feature_df[col].min()),
-                    "max": float(feature_df[col].max()),
-                    "mean": float(feature_df[col].mean()),
-                }
-            )
+            schema.append({
+                "name": col,
+                "type": "numeric",
+                "min": float(feature_df[col].min()),
+                "max": float(feature_df[col].max()),
+                "mean": float(feature_df[col].mean()),
+            })
 
     return schema
 
 
 def get_default_raw_input(df):
-    feature_df = df.drop(columns=[INCOME_TARGET, ESTIMATED_INCOME, INCOME_CLASS])
+    feature_df = df.drop(columns=list(MODEL_EXCLUDED_COLUMNS))
     defaults = {}
 
     for col in feature_df.columns:
@@ -124,7 +118,8 @@ def get_education_num_map(df):
         .set_index("education")["education-num"]
         .to_dict()
     )
-    return {key: int(value) for key, value in mapping.items()}
+    return {k: int(v) for k, v in mapping.items()}
+
 
 
 def encode_features(df):
@@ -141,10 +136,8 @@ def split_data(df):
     return (
         X.to_numpy(dtype=np.float64),
         df[INCOME_TARGET].to_numpy(dtype=np.int64),
-        df[ESTIMATED_INCOME].to_numpy(dtype=np.float64),
         df[INCOME_CLASS].to_numpy(dtype=np.int64),
     )
-
 
 def scale_features(X):
     mean = np.mean(X, axis=0)
@@ -153,7 +146,13 @@ def scale_features(X):
     return (X - mean) / std, mean, std
 
 
+# Inference Row Builder
+
 def build_feature_row(raw_input, feature_columns):
-    encoded = pd.get_dummies(pd.DataFrame([raw_input]), drop_first=True, dtype=int)
+    encoded = pd.get_dummies(
+        pd.DataFrame([raw_input]),
+        drop_first=True,
+        dtype=int
+    )
     encoded = encoded.reindex(columns=feature_columns, fill_value=0)
     return encoded.to_numpy(dtype=np.float64)
