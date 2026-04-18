@@ -1,4 +1,5 @@
 import pickle
+from platform import system
 
 import numpy as np
 import pandas as pd
@@ -258,16 +259,34 @@ def preprocess_input(raw_input, system):
 
 
 def run_predictions(processed_input, system):
-    probability = float(system["logistic_model"].predict_proba(processed_input)[0][1])
-    estimated_income = float(system["linear_model"].predict(processed_input)[0])
-    income_class_idx = int(system["classifier_model"].predict(processed_input)[0])
-    return {
-        "probability": probability,
-        "estimated_income": estimated_income,
-        "income_class": CLASS_LABELS.get(income_class_idx, "Medium"),
-    }
+    log_model = system["logistic_model"]
+    tree_model = system["tree_model"]
+    rf_model = system["rf_model"]
+
+    prob = float(log_model.predict_proba(processed_input)[0][1])
+    tree_class = int(tree_model.predict(processed_input)[0])
+    rf_pred = int(rf_model.predict(processed_input)[0])
+
+    return prob, tree_class, rf_pred
+
+CLASS_LABELS = {0: "Low", 1: "Medium", 2: "High"}
 
 
+def make_decision(prob, tree_class):
+    if prob > 0.7:
+        return "High Income", "High confidence"
+    elif prob < 0.3:
+        return "Low Income", "High confidence"
+    else:
+        return CLASS_LABELS.get(tree_class, "Medium"), "Uncertain"
+
+
+def check_consistency(prob, rf_pred):
+    if prob > 0.7 and rf_pred == 0:
+        return "Conflict"
+    if prob < 0.3 and rf_pred == 1:
+        return "Conflict"
+    return "Consistent"    
 def validate_inputs(user_input):
     if user_input["capital_gain"] < 0 or user_input["capital_loss"] < 0:
         return "Capital gain and capital loss must be zero or greater."
@@ -282,19 +301,19 @@ def render_header(metrics):
         <div class="hero">
             <div class="eyebrow">Decision Support Interface</div>
             <h1 class="hero-title">Income Intelligence System</h1>
-            <div class="hero-copy">Predict income probability, estimated income, and income class with a cleaner layout and metrics that better reflect the current pipeline.</div>
+            <div class="hero-copy">Predict income probability and income class with instant decisions backed by ensemble predictions.</div>
             <div class="summary-grid">
                 <div class="summary-card">
                     <div class="summary-label">Logistic Accuracy</div>
                     <div class="summary-value">{metrics["logistic_accuracy"]:.1%}</div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-label">Linear RMSE</div>
-                    <div class="summary-value">{metrics["linear_rmse"]:.0f}</div>
+                    <div class="summary-label">Tree Accuracy</div>
+                    <div class="summary-value">{metrics["tree_accuracy"]:.1%}</div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-label">Tree Accuracy</div>
-                    <div class="summary-value">{metrics["classifier_accuracy"]:.1%}</div>
+                    <div class="summary-label">RF Accuracy</div>
+                    <div class="summary-value">{metrics["rf_accuracy"]:.1%}</div>
                 </div>
             </div>
         </div>
@@ -394,51 +413,34 @@ def render_result_card(label, value, copy_text):
     )
 
 
-def render_results(predictions):
-    probability = predictions["probability"]
-    estimated_income = predictions["estimated_income"]
-    income_class = predictions["income_class"]
-    class_style = CLASS_STYLES[income_class]
-    confidence_gap = abs(probability - 0.5)
-    confidence = "High confidence" if confidence_gap >= 0.25 else "Moderate confidence" if confidence_gap >= 0.12 else "Low confidence"
+def render_results(result):
+    prob = result["probability"]
 
     with st.container(border=True):
         st.subheader("Prediction Summary")
         st.markdown(
-            '<div class="section-lead">The outputs are ordered from decision to interpretation so the user can understand the result quickly and then review the supporting signals.</div>',
+            '<div class="section-lead">Decision, confidence level, and model consensus at a glance.</div>',
             unsafe_allow_html=True,
         )
 
         render_result_card(
-            "Estimated Income",
-            f"${estimated_income:,.0f}",
-            "Predicted using the saved linear model with the same preprocessing and feature ordering used during training.",
+            "Final Decision",
+            result["decision"],
+            f"Confidence: {result['confidence']}",
         )
         render_result_card(
             "Income Probability",
-            f"{probability:.1%}",
-            f"Probability of income above 50K from logistic regression. {confidence}.",
+            f"{prob:.1%}",
+            f"Probability of income above 50K from logistic regression.",
         )
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <div class="result-label">Income Class</div>
-                <div class="pill" style="background:{class_style["bg"]}; color:{class_style["fg"]};">{income_class}</div>
-                <p class="result-copy">Decision tree output grouped into low, medium, and high bands for easier reading.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        render_result_card(
+            "Model Consensus",
+            result["consistency"],
+            "Whether ensemble models agree on the prediction.",
         )
 
         st.markdown("#### Probability Gauge")
-        st.progress(probability, text=f"Income above 50K: {probability:.1%}")
-
-        threshold_df = pd.DataFrame(
-            {"Probability": [probability * 100, 50.0]},
-            index=["Prediction", "Threshold"],
-        )
-        st.markdown("#### Probability vs Threshold")
-        st.bar_chart(threshold_df)
+        st.progress(prob, text=f"Income above 50K: {prob:.1%}")
 
 
 def render_empty_state():
@@ -473,9 +475,20 @@ def main():
                     system["education_num_map"],
                 )
                 processed_input = preprocess_input(raw_input, system)
-                predictions = run_predictions(processed_input, system)
+                prob, tree_class, rf_pred = run_predictions(processed_input, system)
+                
+                decision, confidence = make_decision(prob, tree_class)
+                consistency = check_consistency(prob, rf_pred)
+                
+                result = {
+                    "decision": decision,
+                    "confidence": confidence,
+                    "probability": prob,
+                    "consistency": consistency
+                }
+                
                 st.success("Prediction ready.")
-                render_results(predictions)
+                render_results(result)
         else:
             render_empty_state()
 
